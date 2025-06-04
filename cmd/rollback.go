@@ -19,30 +19,21 @@ var rollbackCmd = &cobra.Command{
 		key, _ := cmd.Flags().GetString("key")
 		timestampStr, _ := cmd.Flags().GetString("timestamp")
 
-		if bucket == "" || key == "" {
-			fmt.Println("エラー: バケット名とオブジェクトキーは必須です")
+		if bucket == "" || key == "" || timestampStr == "" {
+			fmt.Println("エラー: バケット名、オブジェクトキー、タイムスタンプは必須です")
 			cmd.Help()
 			return
 		}
 
-		var timestamp time.Time
-		var err error
-		if timestampStr != "" {
-			timestamp, err = time.Parse(time.RFC3339, timestampStr)
-			if err != nil {
-				fmt.Printf("エラー: タイムスタンプの形式が無効です: %v\n", err)
-				fmt.Println("有効な形式: YYYY-MM-DDThh:mm:ssZ (例: 2023-01-01T12:00:00Z)")
-				return
-			}
+		timestamp, err := time.Parse(time.RFC3339, timestampStr)
+		if err != nil {
+			fmt.Printf("エラー: タイムスタンプの形式が無効です: %v\n", err)
+			fmt.Println("有効な形式: YYYY-MM-DDThh:mm:ssZ (例: 2023-01-01T12:00:00Z)")
+			return
 		}
 
-		if !timestamp.IsZero() {
-			fmt.Printf("バケット '%s' のオブジェクト '%s' を時間 '%s' 以前の最新バージョンにロールバックします\n", 
-				bucket, key, timestamp.Format(time.RFC3339))
-		} else {
-			fmt.Printf("バケット '%s' のオブジェクト '%s' を直前のバージョンにロールバックします\n", 
-				bucket, key)
-		}
+		fmt.Printf("バケット '%s' のオブジェクト '%s' を時間 '%s' 以前の最新バージョンにロールバックします\n", 
+			bucket, key, timestamp.Format(time.RFC3339))
 		
 		opts := s3.RollbackOptions{
 			Bucket:    bucket,
@@ -64,8 +55,9 @@ func init() {
 
 	rollbackCmd.Flags().StringP("bucket", "b", "", "S3バケット名 (必須)")
 	rollbackCmd.Flags().StringP("key", "k", "", "S3オブジェクトキー (必須)")
-	rollbackCmd.Flags().StringP("timestamp", "t", "", "ロールバック先の時間 (ISO 8601形式: YYYY-MM-DDThh:mm:ssZ)")
+	rollbackCmd.Flags().StringP("timestamp", "t", "", "ロールバック先の時間 (ISO 8601形式: YYYY-MM-DDThh:mm:ssZ) (必須)")
 	
 	rollbackCmd.MarkFlagRequired("bucket")
 	rollbackCmd.MarkFlagRequired("key")
+	rollbackCmd.MarkFlagRequired("timestamp")
 }

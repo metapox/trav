@@ -24,15 +24,7 @@ func Rollback(opts RollbackOptions) error {
 
 	client := s3.NewFromConfig(cfg)
 
-	if !opts.Timestamp.IsZero() {
-		versionID, err := findVersionBeforeTimestamp(client, opts.Bucket, opts.Key, opts.Timestamp)
-		if err != nil {
-			return err
-		}
-		return copySpecificVersion(client, opts.Bucket, opts.Key, versionID)
-	}
-
-	versionID, err := getLatestNonCurrentVersion(client, opts.Bucket, opts.Key)
+	versionID, err := findVersionBeforeTimestamp(client, opts.Bucket, opts.Key, opts.Timestamp)
 	if err != nil {
 		return err
 	}
@@ -80,28 +72,4 @@ func findVersionBeforeTimestamp(client *s3.Client, bucket, key string, timestamp
 	}
 
 	return *latestVersionBeforeTimestamp, nil
-}
-
-func getLatestNonCurrentVersion(client *s3.Client, bucket, key string) (string, error) {
-	resp, err := client.ListObjectVersions(context.TODO(), &s3.ListObjectVersionsInput{
-		Bucket: aws.String(bucket),
-		Prefix: aws.String(key),
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("バージョン一覧の取得に失敗しました: %w", err)
-	}
-
-	var versions []string
-	for _, v := range resp.Versions {
-		if *v.Key == key && !*v.IsLatest {
-			versions = append(versions, *v.VersionId)
-		}
-	}
-
-	if len(versions) == 0 {
-		return "", fmt.Errorf("ロールバック可能な以前のバージョンが見つかりませんでした")
-	}
-
-	return versions[0], nil
 }
