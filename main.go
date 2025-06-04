@@ -1,6 +1,8 @@
 package main
 
-import "github.com/metapox/trav/cmd"
+import (
+	"github.com/metapox/trav/cmd"
+)
 
 func main() {
 	cmd.Execute()

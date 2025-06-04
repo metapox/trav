@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/metapox/trav/pkg/s3"
@@ -20,20 +20,19 @@ var rollbackCmd = &cobra.Command{
 		timestampStr, _ := cmd.Flags().GetString("timestamp")
 
 		if bucket == "" || key == "" || timestampStr == "" {
-			fmt.Println("エラー: バケット名、オブジェクトキー、タイムスタンプは必須です")
+			slog.Error("必須パラメータが不足しています", "bucket", bucket, "key", key, "timestamp", timestampStr)
 			cmd.Help()
 			return
 		}
 
 		timestamp, err := time.Parse(time.RFC3339, timestampStr)
 		if err != nil {
-			fmt.Printf("エラー: タイムスタンプの形式が無効です: %v\n", err)
-			fmt.Println("有効な形式: YYYY-MM-DDThh:mm:ssZ (例: 2023-01-01T12:00:00Z)")
+			slog.Error("タイムスタンプの形式が無効です", "error", err, "timestamp", timestampStr)
+			slog.Info("有効な形式: YYYY-MM-DDThh:mm:ssZ (例: 2023-01-01T12:00:00Z)")
 			return
 		}
 
-		fmt.Printf("バケット '%s' のオブジェクト '%s' を時間 '%s' 以前の最新バージョンにロールバックします\n", 
-			bucket, key, timestamp.Format(time.RFC3339))
+		slog.Info("ロールバック処理を開始します", "bucket", bucket, "key", key, "timestamp", timestamp.Format(time.RFC3339))
 		
 		opts := s3.RollbackOptions{
 			Bucket:    bucket,
@@ -42,11 +41,11 @@ var rollbackCmd = &cobra.Command{
 		}
 		
 		if err := s3.Rollback(opts); err != nil {
-			fmt.Printf("ロールバック処理中にエラーが発生しました: %v\n", err)
+			slog.Error("ロールバック処理中にエラーが発生しました", "error", err)
 			return
 		}
 		
-		fmt.Println("ロールバック処理が完了しました")
+		slog.Info("ロールバック処理が完了しました")
 	},
 }
 
