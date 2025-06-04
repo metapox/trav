@@ -1,0 +1,26 @@
+# バイナリファイル
+trav
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# テストバイナリ
+*.test
+
+# カバレッジファイル
+*.out
+
+# 依存関係ディレクトリ
+/vendor/
+
+# IDE関連ファイル
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS固有のファイル
+.DS_Store
+Thumbs.db
