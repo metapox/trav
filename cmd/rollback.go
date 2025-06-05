@@ -13,6 +13,8 @@ var rollbackCmd = &cobra.Command{
 	Short: "S3のオブジェクトを指定時間以前のバージョンにロールバックします",
 	Long: `rollbackコマンドは指定されたS3バケットとオブジェクトを
 指定された時間以前の最新バージョンにロールバックします。
+指定された時間以降に変更がない場合は何もしません。
+指定された時間以降に最初に作成された場合は削除します。
 バージョニングが有効なバケットで使用できます。`,
 	Run: func(cmd *cobra.Command, args []string) {
 		bucket, _ := cmd.Flags().GetString("bucket")
@@ -45,7 +47,7 @@ var rollbackCmd = &cobra.Command{
 			return
 		}
 		
-		slog.Info("ロールバック処理が完了しました")
+		slog.Info("処理が完了しました")
 	},
 }
 
