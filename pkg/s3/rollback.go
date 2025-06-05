@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,9 +16,11 @@ import (
 type RollbackOptions struct {
 	Bucket    string
 	Key       string
+	Prefix    string
 	Timestamp time.Time
 }
 
+// Rollback は指定されたS3オブジェクトを指定時間以前のバージョンにロールバックします
 func Rollback(opts RollbackOptions) error {
 	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
@@ -27,11 +30,86 @@ func Rollback(opts RollbackOptions) error {
 
 	client := s3.NewFromConfig(cfg)
 
+	// Keyが指定されている場合は単一オブジェクトのロールバック
+	if opts.Key != "" {
+		return rollbackSingleObject(client, opts.Bucket, opts.Key, opts.Timestamp)
+	}
+
+	// Prefixが指定されている場合は複数オブジェクトの並列ロールバック
+	if opts.Prefix != "" {
+		return rollbackMultipleObjects(client, opts.Bucket, opts.Prefix, opts.Timestamp)
+	}
+
+	return fmt.Errorf("KeyまたはPrefixのいずれかを指定する必要があります")
+}
+
+// rollbackMultipleObjects はプレフィックスに一致する複数のオブジェクトを並列でロールバックします
+func rollbackMultipleObjects(client *s3.Client, bucket, prefix string, timestamp time.Time) error {
+	// プレフィックスに一致するオブジェクトの一覧を取得
+	slog.Info("プレフィックスに一致するオブジェクトを検索します", "bucket", bucket, "prefix", prefix)
+	
+	resp, err := client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucket),
+		Prefix: aws.String(prefix),
+	})
+	
+	if err != nil {
+		slog.Error("オブジェクト一覧の取得に失敗しました", "error", err)
+		return fmt.Errorf("オブジェクト一覧の取得に失敗しました: %w", err)
+	}
+
+	if len(resp.Contents) == 0 {
+		slog.Info("プレフィックスに一致するオブジェクトが見つかりませんでした", "prefix", prefix)
+		return nil
+	}
+
+	slog.Info("ロールバック対象のオブジェクトを見つけました", "count", len(resp.Contents))
+
+	// エラーを格納するチャネル
+	errCh := make(chan error, len(resp.Contents))
+	
+	// WaitGroupで並列処理の完了を待機
+	var wg sync.WaitGroup
+	
+	// 各オブジェクトを並列でロールバック
+	for _, obj := range resp.Contents {
+		wg.Add(1)
+		go func(key string) {
+			defer wg.Done()
+			
+			slog.Info("オブジェクトのロールバックを開始します", "key", key)
+			err := rollbackSingleObject(client, bucket, key, timestamp)
+			
+			if err != nil {
+				slog.Error("オブジェクトのロールバックに失敗しました", "key", key, "error", err)
+				errCh <- fmt.Errorf("オブジェクト %s のロールバックに失敗しました: %w", key, err)
+				return
+			}
+			
+			slog.Info("オブジェクトのロールバックが完了しました", "key", key)
+		}(*obj.Key)
+	}
+	
+	// 全ての処理が完了するのを待機
+	wg.Wait()
+	close(errCh)
+	
+	// エラーがあれば最初のエラーを返す
+	for err := range errCh {
+		return err
+	}
+	
+	slog.Info("全てのオブジェクトのロールバックが完了しました", "count", len(resp.Contents))
+	return nil
+}
+
+// rollbackSingleObject は単一のオブジェクトをロールバックします
+func rollbackSingleObject(client *s3.Client, bucket, key string, timestamp time.Time) error {
 	// オブジェクトのバージョン一覧を取得
-	slog.Info("バージョン一覧を取得します", "bucket", opts.Bucket, "key", opts.Key)
+	slog.Info("バージョン一覧を取得します", "bucket", bucket, "key", key)
 	resp, err := client.ListObjectVersions(context.TODO(), &s3.ListObjectVersionsInput{
-		Bucket: aws.String(opts.Bucket),
-		Prefix: aws.String(opts.Key),
+		Bucket: aws.String(bucket),
+		Prefix: aws.String(key),
 	})
 
 	if err != nil {
@@ -42,14 +120,14 @@ func Rollback(opts RollbackOptions) error {
 	// 指定されたキーに完全一致するバージョンのみをフィルタリング
 	var versions []s3types.ObjectVersion
 	for _, v := range resp.Versions {
-		if *v.Key == opts.Key {
+		if *v.Key == key {
 			versions = append(versions, v)
 		}
 	}
 
 	if len(versions) == 0 {
-		slog.Error("指定されたオブジェクトが見つかりませんでした")
-		return fmt.Errorf("指定されたオブジェクト %s が見つかりませんでした", opts.Key)
+		slog.Error("指定されたオブジェクトが見つかりませんでした", "key", key)
+		return fmt.Errorf("指定されたオブジェクト %s が見つかりませんでした", key)
 	}
 
 	// 指定された時間以降に変更があるか確認
@@ -64,49 +142,49 @@ func Rollback(opts RollbackOptions) error {
 		}
 
 		// 指定された時間以降に変更があるか確認
-		if !v.LastModified.Before(opts.Timestamp) {
+		if !v.LastModified.Before(timestamp) {
 			hasChangesAfterTimestamp = true
-			slog.Info("指定された時間以降の変更を検出しました", "versionID", *v.VersionId, "lastModified", *v.LastModified)
+			slog.Info("指定された時間以降の変更を検出しました", "key", key, "versionID", *v.VersionId, "lastModified", *v.LastModified)
 		}
 	}
 
 	// 最初のバージョンが指定された時間以降に作成された場合
-	if firstVersionTime != nil && !firstVersionTime.Before(opts.Timestamp) {
+	if firstVersionTime != nil && !firstVersionTime.Before(timestamp) {
 		isCreatedAfterTimestamp = true
-		slog.Info("オブジェクトは指定された時間以降に最初に作成されました", "firstVersionTime", *firstVersionTime)
+		slog.Info("オブジェクトは指定された時間以降に最初に作成されました", "key", key, "firstVersionTime", *firstVersionTime)
 	}
 
 	// 指定された時間以降に変更がない場合はロールバック不要
 	if !hasChangesAfterTimestamp {
-		slog.Info("指定された時間以降に変更がないため、ロールバックは不要です")
+		slog.Info("指定された時間以降に変更がないため、ロールバックは不要です", "key", key)
 		return nil
 	}
 
 	// 指定された時間以降に最初に作成された場合は削除
 	if isCreatedAfterTimestamp {
-		slog.Info("オブジェクトを削除します", "bucket", opts.Bucket, "key", opts.Key)
+		slog.Info("オブジェクトを削除します", "bucket", bucket, "key", key)
 		_, err := client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
-			Bucket: aws.String(opts.Bucket),
-			Key:    aws.String(opts.Key),
+			Bucket: aws.String(bucket),
+			Key:    aws.String(key),
 		})
 		if err != nil {
-			slog.Error("オブジェクトの削除に失敗しました", "error", err)
+			slog.Error("オブジェクトの削除に失敗しました", "key", key, "error", err)
 			return fmt.Errorf("オブジェクトの削除に失敗しました: %w", err)
 		}
-		slog.Info("オブジェクトの削除が完了しました")
+		slog.Info("オブジェクトの削除が完了しました", "key", key)
 		return nil
 	}
 
 	// 指定された時間より前の最新バージョンを検索
-	slog.Info("指定時間以前のバージョンを検索します", "timestamp", opts.Timestamp)
-	versionID, err := findVersionBeforeTimestamp(client, opts.Bucket, opts.Key, opts.Timestamp)
+	slog.Info("指定時間以前のバージョンを検索します", "key", key, "timestamp", timestamp)
+	versionID, err := findVersionBeforeTimestamp(client, bucket, key, timestamp)
 	if err != nil {
-		slog.Error("バージョン検索に失敗しました", "error", err)
+		slog.Error("バージョン検索に失敗しました", "key", key, "error", err)
 		return err
 	}
-	slog.Info("バージョンを見つけました", "versionID", versionID)
+	slog.Info("バージョンを見つけました", "key", key, "versionID", versionID)
 	
-	return copySpecificVersion(client, opts.Bucket, opts.Key, versionID)
+	return copySpecificVersion(client, bucket, key, versionID)
 }
 
 func copySpecificVersion(client *s3.Client, bucket, key, versionID string) error {
@@ -118,11 +196,11 @@ func copySpecificVersion(client *s3.Client, bucket, key, versionID string) error
 	})
 
 	if err != nil {
-		slog.Error("オブジェクトのコピーに失敗しました", "error", err)
+		slog.Error("オブジェクトのコピーに失敗しました", "key", key, "error", err)
 		return fmt.Errorf("オブジェクトのコピーに失敗しました: %w", err)
 	}
 
-	slog.Info("オブジェクトのコピーが完了しました")
+	slog.Info("オブジェクトのコピーが完了しました", "key", key)
 	return nil
 }
 
@@ -142,20 +220,20 @@ func findVersionBeforeTimestamp(client *s3.Client, bucket, key string, timestamp
 
 	for _, v := range resp.Versions {
 		if *v.Key == key && v.LastModified.Before(timestamp) {
-			slog.Debug("バージョンを検出しました", "versionID", *v.VersionId, "lastModified", *v.LastModified)
+			slog.Debug("バージョンを検出しました", "key", key, "versionID", *v.VersionId, "lastModified", *v.LastModified)
 			if latestVersionBeforeTimestamp == nil || v.LastModified.After(latestLastModified) {
 				latestVersionBeforeTimestamp = v.VersionId
 				latestLastModified = *v.LastModified
-				slog.Debug("より新しいバージョンを見つけました", "versionID", *v.VersionId, "lastModified", *v.LastModified)
+				slog.Debug("より新しいバージョンを見つけました", "key", key, "versionID", *v.VersionId, "lastModified", *v.LastModified)
 			}
 		}
 	}
 
 	if latestVersionBeforeTimestamp == nil {
-		slog.Error("指定された時間より前のバージョンが見つかりませんでした", "timestamp", timestamp)
+		slog.Error("指定された時間より前のバージョンが見つかりませんでした", "key", key, "timestamp", timestamp)
 		return "", fmt.Errorf("指定された時間 %v より前のバージョンが見つかりませんでした", timestamp)
 	}
 
-	slog.Info("指定時間以前の最新バージョンを見つけました", "versionID", *latestVersionBeforeTimestamp, "lastModified", latestLastModified)
+	slog.Info("指定時間以前の最新バージョンを見つけました", "key", key, "versionID", *latestVersionBeforeTimestamp, "lastModified", latestLastModified)
 	return *latestVersionBeforeTimestamp, nil
 }
