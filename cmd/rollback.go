@@ -24,6 +24,7 @@ var rollbackCmd = &cobra.Command{
 		key, _ := cmd.Flags().GetString("key")
 		prefix, _ := cmd.Flags().GetString("prefix")
 		timestampStr, _ := cmd.Flags().GetString("timestamp")
+		concurrency, _ := cmd.Flags().GetInt("concurrency")
 
 		if bucket == "" || timestampStr == "" {
 			slog.Error("必須パラメータが不足しています", "bucket", bucket, "timestamp", timestampStr)
@@ -47,14 +48,15 @@ var rollbackCmd = &cobra.Command{
 		if key != "" {
 			slog.Info("単一オブジェクトのロールバック処理を開始します", "bucket", bucket, "key", key, "timestamp", timestamp.Format(time.RFC3339))
 		} else {
-			slog.Info("複数オブジェクトのロールバック処理を開始します", "bucket", bucket, "prefix", prefix, "timestamp", timestamp.Format(time.RFC3339))
+			slog.Info("複数オブジェクトのロールバック処理を開始します", "bucket", bucket, "prefix", prefix, "timestamp", timestamp.Format(time.RFC3339), "concurrency", concurrency)
 		}
 		
 		opts := s3.RollbackOptions{
-			Bucket:    bucket,
-			Key:       key,
-			Prefix:    prefix,
-			Timestamp: timestamp,
+			Bucket:      bucket,
+			Key:         key,
+			Prefix:      prefix,
+			Timestamp:   timestamp,
+			Concurrency: concurrency,
 		}
 		
 		if err := s3.Rollback(opts); err != nil {
@@ -73,6 +75,7 @@ func init() {
 	rollbackCmd.Flags().StringP("key", "k", "", "S3オブジェクトキー (--key または --prefix のいずれかが必須)")
 	rollbackCmd.Flags().StringP("prefix", "p", "", "S3オブジェクトのプレフィックス (--key または --prefix のいずれかが必須)")
 	rollbackCmd.Flags().StringP("timestamp", "t", "", "ロールバック先の時間 (ISO 8601形式: YYYY-MM-DDThh:mm:ssZ) (必須)")
+	rollbackCmd.Flags().IntP("concurrency", "c", 10, "並列処理数 (デフォルト: 10)")
 	
 	rollbackCmd.MarkFlagRequired("bucket")
 	rollbackCmd.MarkFlagRequired("timestamp")

@@ -29,6 +29,9 @@ trav rollback --bucket バケット名 --key オブジェクトキー --timestam
 # プレフィックスに一致する全てのオブジェクトを並列でロールバック
 trav rollback --bucket バケット名 --prefix プレフィックス --timestamp 2023-01-01T12:00:00Z
 
+# 並列処理数を指定してロールバック
+trav rollback --bucket バケット名 --prefix プレフィックス --timestamp 2023-01-01T12:00:00Z --concurrency 20
+
 # デバッグモードを有効にして実行
 trav rollback --bucket バケット名 --key オブジェクトキー --timestamp 2023-01-01T12:00:00Z --debug
 ```
@@ -39,6 +42,7 @@ trav rollback --bucket バケット名 --key オブジェクトキー --timestam
 - `-k, --key`: S3オブジェクトキー (--key または --prefix のいずれかが必須)
 - `-p, --prefix`: S3オブジェクトのプレフィックス (--key または --prefix のいずれかが必須)
 - `-t, --timestamp` (必須): ロールバック先の時間 (ISO 8601形式: YYYY-MM-DDThh:mm:ssZ)
+- `-c, --concurrency`: 並列処理数 (デフォルト: 10)
 - `-d, --debug`: デバッグモードを有効にする
 
 #### 動作

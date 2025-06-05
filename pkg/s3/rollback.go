@@ -13,11 +13,15 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+// デフォルトの並列処理数
+const DefaultConcurrency = 10
+
 type RollbackOptions struct {
-	Bucket    string
-	Key       string
-	Prefix    string
-	Timestamp time.Time
+	Bucket      string
+	Key         string
+	Prefix      string
+	Timestamp   time.Time
+	Concurrency int // 並列処理数
 }
 
 // Rollback は指定されたS3オブジェクトを指定時間以前のバージョンにロールバックします
@@ -30,6 +34,11 @@ func Rollback(opts RollbackOptions) error {
 
 	client := s3.NewFromConfig(cfg)
 
+	// 並列処理数が指定されていない場合はデフォルト値を使用
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = DefaultConcurrency
+	}
+
 	// Keyが指定されている場合は単一オブジェクトのロールバック
 	if opts.Key != "" {
 		return rollbackSingleObject(client, opts.Bucket, opts.Key, opts.Timestamp)
@@ -37,14 +46,14 @@ func Rollback(opts RollbackOptions) error {
 
 	// Prefixが指定されている場合は複数オブジェクトの並列ロールバック
 	if opts.Prefix != "" {
-		return rollbackMultipleObjects(client, opts.Bucket, opts.Prefix, opts.Timestamp)
+		return rollbackMultipleObjects(client, opts.Bucket, opts.Prefix, opts.Timestamp, opts.Concurrency)
 	}
 
 	return fmt.Errorf("KeyまたはPrefixのいずれかを指定する必要があります")
 }
 
 // rollbackMultipleObjects はプレフィックスに一致する複数のオブジェクトを並列でロールバックします
-func rollbackMultipleObjects(client *s3.Client, bucket, prefix string, timestamp time.Time) error {
+func rollbackMultipleObjects(client *s3.Client, bucket, prefix string, timestamp time.Time, concurrency int) error {
 	// プレフィックスに一致するオブジェクトの一覧を取得
 	slog.Info("プレフィックスに一致するオブジェクトを検索します", "bucket", bucket, "prefix", prefix)
 	
@@ -63,31 +72,43 @@ func rollbackMultipleObjects(client *s3.Client, bucket, prefix string, timestamp
 		return nil
 	}
 
-	slog.Info("ロールバック対象のオブジェクトを見つけました", "count", len(resp.Contents))
+	slog.Info("ロールバック対象のオブジェクトを見つけました", "count", len(resp.Contents), "concurrency", concurrency)
 
 	// エラーを格納するチャネル
 	errCh := make(chan error, len(resp.Contents))
 	
+	// 処理するオブジェクトのキーを格納するチャネル
+	keyCh := make(chan string, len(resp.Contents))
+	
+	// 全てのキーをチャネルに送信
+	for _, obj := range resp.Contents {
+		keyCh <- *obj.Key
+	}
+	close(keyCh)
+	
 	// WaitGroupで並列処理の完了を待機
 	var wg sync.WaitGroup
 	
-	// 各オブジェクトを並列でロールバック
-	for _, obj := range resp.Contents {
+	// 指定された並列数でワーカーを起動
+	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go func(key string) {
+		go func(workerID int) {
 			defer wg.Done()
 			
-			slog.Info("オブジェクトのロールバックを開始します", "key", key)
-			err := rollbackSingleObject(client, bucket, key, timestamp)
-			
-			if err != nil {
-				slog.Error("オブジェクトのロールバックに失敗しました", "key", key, "error", err)
-				errCh <- fmt.Errorf("オブジェクト %s のロールバックに失敗しました: %w", key, err)
-				return
+			// チャネルからキーを取得して処理
+			for key := range keyCh {
+				slog.Info("オブジェクトのロールバックを開始します", "worker", workerID, "key", key)
+				err := rollbackSingleObject(client, bucket, key, timestamp)
+				
+				if err != nil {
+					slog.Error("オブジェクトのロールバックに失敗しました", "worker", workerID, "key", key, "error", err)
+					errCh <- fmt.Errorf("オブジェクト %s のロールバックに失敗しました: %w", key, err)
+					return
+				}
+				
+				slog.Info("オブジェクトのロールバックが完了しました", "worker", workerID, "key", key)
 			}
-			
-			slog.Info("オブジェクトのロールバックが完了しました", "key", key)
-		}(*obj.Key)
+		}(i)
 	}
 	
 	// 全ての処理が完了するのを待機
