@@ -18,7 +18,6 @@ const DefaultConcurrency = 10
 
 type RollbackOptions struct {
 	Bucket      string
-	Key         string
 	Prefix      string
 	Timestamp   time.Time
 	Concurrency int // 並列処理数
@@ -39,17 +38,13 @@ func Rollback(opts RollbackOptions) error {
 		opts.Concurrency = DefaultConcurrency
 	}
 
-	// Keyが指定されている場合は単一オブジェクトのロールバック
-	if opts.Key != "" {
-		return rollbackSingleObject(client, opts.Bucket, opts.Key, opts.Timestamp)
+	// prefixが空の場合はバケット全体を対象とする
+	prefix := opts.Prefix
+	if prefix == "" {
+		slog.Info("プレフィックスが指定されていないため、バケット全体を対象とします", "bucket", opts.Bucket)
 	}
 
-	// Prefixが指定されている場合は複数オブジェクトの並列ロールバック
-	if opts.Prefix != "" {
-		return rollbackMultipleObjects(client, opts.Bucket, opts.Prefix, opts.Timestamp, opts.Concurrency)
-	}
-
-	return fmt.Errorf("KeyまたはPrefixのいずれかを指定する必要があります")
+	return rollbackMultipleObjects(client, opts.Bucket, prefix, opts.Timestamp, opts.Concurrency)
 }
 
 // rollbackMultipleObjects はプレフィックスに一致する複数のオブジェクトを並列でロールバックします
