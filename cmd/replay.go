@@ -120,7 +120,7 @@ func init() {
 
 	replayCmd.Flags().StringP("source-file", "f", "", "変更リストのファイルパス (必須)")
 	replayCmd.Flags().StringP("source-bucket", "s", "", "変更元のバケット (指定しない場合は宛先バケットと同じ)")
-	replayCmd.Flags().StringP("dest-bucket", "d", "", "変更先のバケット (必須)")
+	replayCmd.Flags().StringP("dest-bucket", "b", "", "変更先のバケット (必須)")
 	replayCmd.Flags().IntP("concurrency", "c", 10, "並列処理数")
 	replayCmd.Flags().Float64P("speed-factor", "x", 1.0, "再生速度の倍率 (1.0 = 実時間、2.0 = 2倍速)")
 	replayCmd.Flags().BoolP("dry-run", "n", false, "実際に変更を適用せずに実行")

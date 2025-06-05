@@ -133,7 +133,7 @@ trav replay --source-file changes.json --dest-bucket 宛先バケット名 --out
 #### オプション
 
 - `-f, --source-file` (必須): 変更リストのファイルパス
-- `-d, --dest-bucket` (必須): 変更先のバケット
+- `-b, --dest-bucket` (必須): 変更先のバケット
 - `-s, --source-bucket`: 変更元のバケット (指定しない場合は宛先バケットと同じ)
 - `-c, --concurrency`: 並列処理数 (デフォルト: 10)
 - `-x, --speed-factor`: 再生速度の倍率 (1.0 = 実時間、2.0 = 2倍速) (デフォルト: 1.0)
