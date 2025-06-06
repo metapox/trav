@@ -38,11 +38,11 @@ var rollbackCmd = &cobra.Command{
 			return
 		}
 
-		if prefix == "" {
-			slog.Info("バケット全体のロールバック処理を開始します", "bucket", bucket, "timestamp", timestamp.Format(time.RFC3339), "concurrency", concurrency)
-		} else {
-			slog.Info("プレフィックスに一致するオブジェクトのロールバック処理を開始します", "bucket", bucket, "prefix", prefix, "timestamp", timestamp.Format(time.RFC3339), "concurrency", concurrency)
-		}
+		slog.Info("ロールバック処理を開始します", 
+			"bucket", bucket, 
+			"prefix", prefix, 
+			"timestamp", timestamp.Format(time.RFC3339), 
+			"concurrency", concurrency)
 		
 		opts := s3.RollbackOptions{
 			Bucket:      bucket,
@@ -56,7 +56,7 @@ var rollbackCmd = &cobra.Command{
 			return
 		}
 		
-		slog.Info("処理が完了しました")
+		slog.Info("ロールバック処理が完了しました")
 	},
 }
 

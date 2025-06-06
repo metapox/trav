@@ -35,6 +35,7 @@ func setupLogger() {
 	var logLevel slog.Level
 	if debug {
 		logLevel = slog.LevelDebug
+		slog.Debug("デバッグモードが有効になりました")
 	} else {
 		logLevel = slog.LevelInfo
 	}
@@ -46,10 +47,6 @@ func setupLogger() {
 	
 	// グローバルロガーの設定
 	slog.SetDefault(slog.New(handler))
-	
-	if debug {
-		slog.Debug("デバッグモードが有効になりました")
-	}
 }
 
 func init() {
